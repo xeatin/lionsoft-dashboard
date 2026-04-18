@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, Users2, GitFork, FolderOpen, Settings,
   BadgeCheck, CheckCircle2, Clock, Eye, AlertCircle,
-  ChevronDown, X, Rocket, MessageSquare, Shield, GitBranch,
-  Home, Users, BarChart3, Wifi, WifiOff, RefreshCw,
+  ChevronDown, X, Home, Users, BarChart3, Wifi, WifiOff, RefreshCw,
 } from 'lucide-react'
 
 // ── Config ────────────────────────────────────────────────────
@@ -11,31 +10,46 @@ const CONFIG = {
   projectName:      import.meta.env.VITE_PROJECT_NAME      || 'Fintech XYZ',
   projectType:      import.meta.env.VITE_PROJECT_TYPE      || 'Plataforma de Pagamentos',
   projectInitials:  import.meta.env.VITE_PROJECT_INITIALS  || 'FX',
-  listId:           import.meta.env.VITE_LIST_ID           || '',   // ID da sua lista no ClickUp
+  listId:           import.meta.env.VITE_LIST_ID           || '',
   activeSprintName: import.meta.env.VITE_ACTIVE_SPRINT     || 'Sprint 12',
   deliveryDate:     import.meta.env.VITE_DELIVERY_DATE     || '12 Out, 2023',
   velocity:         import.meta.env.VITE_VELOCITY          || '42pts/wk',
 }
 
-// ── Mapeamento de status ClickUp → dashboard ──────────────────
+// ── Status mapping — usa includes() para ser tolerante com variações ──
 function mapStatus(raw) {
   const s = (raw || '').toLowerCase().trim()
-  if (['complete', 'closed', 'done', 'concluída', 'concluida'].includes(s))    return 'completed'
-  if (['in progress', 'em progresso', 'doing', 'em andamento'].includes(s))    return 'in_progress'
-  if (['review', 'em review', 'revisão', 'approval', 'waiting'].includes(s))   return 'review'
+  if (s.includes('complet') || s.includes('done') || s.includes('closed') || s.includes('conclu')) return 'completed'
+  if (s.includes('progress') || s.includes('doing') || s.includes('andamento'))                    return 'in_progress'
+  if (s.includes('review') || s.includes('revis') || s.includes('approval') || s.includes('waiting')) return 'review'
   return 'pending'
 }
 
-function subtitleFromStatus(status) {
-  return {
-    completed:   'Concluída',
-    in_progress: 'Em andamento',
-    review:      'Aguardando aprovação',
-    pending:     'A fazer',
-  }[status] || 'A fazer'
+// ── Tempo relativo ────────────────────────────────────────────
+function timeAgo(timestamp) {
+  if (!timestamp) return ''
+  const diff    = Date.now() - parseInt(timestamp)
+  const minutes = Math.floor(diff / 60000)
+  const hours   = Math.floor(diff / 3600000)
+  const days    = Math.floor(diff / 86400000)
+  if (minutes < 2)  return 'Agora mesmo'
+  if (minutes < 60) return `Há ${minutes} min`
+  if (hours < 24)   return `Há ${hours} hora${hours > 1 ? 's' : ''}`
+  if (days === 1)   return 'Há 1 dia'
+  return `Há ${days} dias`
 }
 
-// ── Dados demo (mostrados quando ClickUp não está conectado) ──
+// ── Label de ação baseada no status (para o histórico) ────────
+function actionLabel(status) {
+  return {
+    completed:   'Tarefa concluída',
+    in_progress: 'Em andamento',
+    review:      'Enviada para review',
+    pending:     'Adicionada à sprint',
+  }[status] || 'Atualizada'
+}
+
+// ── Dados fixos ───────────────────────────────────────────────
 const DEMO_SQUAD = [
   { name: 'Ana Mendes',  role: 'Lead Dev',    initials: 'AM', bg: 'bg-primary-container',   textColor: 'text-white' },
   { name: 'Ricardo B.',  role: 'UX Design',   initials: 'RB', bg: 'bg-secondary-container', textColor: 'text-on-secondary-container' },
@@ -45,13 +59,12 @@ const DEMO_SQUAD = [
 ]
 
 const DEMO_TASKS = [
-  { title: 'Integração API Pix',     subtitle: 'Concluída',           status: 'completed',  statusLabel: 'Concluída',    statusBg: 'bg-primary',                                statusText: 'text-white' },
-  { title: 'Dashboard Analytics',    subtitle: 'Aguardando aprovação', status: 'review',     statusLabel: 'Review',       statusBg: 'bg-secondary-container',                   statusText: 'text-on-secondary-container' },
-  { title: 'Checkout Flow Refactor', subtitle: 'Em andamento',        status: 'in_progress', statusLabel: 'Em Progresso', statusBg: 'bg-primary-container border border-primary/30', statusText: 'text-white' },
-  { title: 'Push Notifications',     subtitle: 'A fazer',             status: 'pending',    statusLabel: 'Pendente',     statusBg: 'bg-white/10',                               statusText: 'text-white opacity-40' },
+  { title: 'Integração API Pix',     subtitle: 'Concluída',            status: 'completed',  statusLabel: 'Concluída',    statusBg: 'bg-primary',                                statusText: 'text-white' },
+  { title: 'Dashboard Analytics',    subtitle: 'Enviada para review',  status: 'review',     statusLabel: 'Review',       statusBg: 'bg-secondary-container',                   statusText: 'text-on-secondary-container' },
+  { title: 'Checkout Flow Refactor', subtitle: 'Em andamento',         status: 'in_progress', statusLabel: 'Em Progresso', statusBg: 'bg-primary-container border border-primary/30', statusText: 'text-white' },
+  { title: 'Push Notifications',     subtitle: 'Adicionada à sprint',  status: 'pending',    statusLabel: 'Pendente',     statusBg: 'bg-white/10',                               statusText: 'text-white opacity-40' },
 ]
 
-// Sprints históricos (fixos) + Sprint atual (dados reais do ClickUp)
 const HISTORICAL_SPRINTS = [
   { name: 'Sprint 10', period: '01 Set – 14 Set', status: 'completed', tasks: [
     { title: 'Setup do ambiente e CI/CD',       status: 'completed' },
@@ -62,51 +75,20 @@ const HISTORICAL_SPRINTS = [
     { title: 'Configuração de monitoramento',    status: 'completed' },
   ]},
   { name: 'Sprint 11', period: '15 Set – 28 Set', status: 'completed', tasks: [
-    { title: 'API de transações (PIX)',           status: 'completed' },
-    { title: 'Dashboard do cliente',             status: 'completed' },
-    { title: 'Integração gateway de pagamento',  status: 'completed' },
-    { title: 'Notificações por e-mail',          status: 'completed' },
-    { title: 'Relatórios básicos (PDF)',         status: 'completed' },
-    { title: 'Code review e refactoring',        status: 'completed' },
+    { title: 'API de transações (PIX)',          status: 'completed' },
+    { title: 'Dashboard do cliente',            status: 'completed' },
+    { title: 'Integração gateway de pagamento', status: 'completed' },
+    { title: 'Notificações por e-mail',         status: 'completed' },
+    { title: 'Relatórios básicos (PDF)',        status: 'completed' },
+    { title: 'Code review e refactoring',       status: 'completed' },
   ]},
 ]
-
-const DEMO_SPRINT_12 = {
-  name: 'Sprint 12', period: '29 Set – 12 Out', status: 'in_progress',
-  tasks: [
-    { title: 'Integração API Pix',          status: 'completed' },
-    { title: 'Dashboard Analytics',         status: 'review' },
-    { title: 'Checkout Flow Refactor',      status: 'in_progress' },
-    { title: 'Push Notifications',          status: 'pending' },
-    { title: 'Testes E2E - Fluxo completo', status: 'review' },
-    { title: 'Otimização de performance',   status: 'in_progress' },
-  ],
-}
-
-const DEMO_SPRINT_13 = {
-  name: 'Sprint 13', period: '13 Out – 26 Out', status: 'planned',
-  tasks: [
-    { title: 'Multi-tenancy completo',       status: 'pending' },
-    { title: 'Dashboard analytics avançado', status: 'pending' },
-    { title: 'Testes de carga e stress',     status: 'pending' },
-    { title: 'Deploy em produção',           status: 'pending' },
-  ],
-}
 
 const DEMO_HEATMAP = [
   10, 40, 20, 90, 30, 60, 10,
   50,100, 70, 40, 20, 60, 30,
   30, 60, 80, 10, 40, 90, 20,
  100, 20, 50, 30, 70, 40, 60,
-]
-
-const UPDATES = [
-  { icon: Rocket,        text: 'Deploy do módulo de pagamentos PIX realizado com sucesso', time: 'Há 2 horas',  color: 'text-blue-300',  bg: 'bg-primary/20' },
-  { icon: Eye,           text: 'Dashboard Analytics enviado para review do cliente',        time: 'Há 5 horas',  color: 'text-[#fdc425]', bg: 'bg-[#fdc425]/20' },
-  { icon: CheckCircle2,  text: 'Integração API Pix concluída e testada',                    time: 'Há 1 dia',    color: 'text-blue-300',  bg: 'bg-primary/20' },
-  { icon: GitBranch,     text: 'Sprint 12 iniciada — foco em checkout e analytics',         time: 'Há 3 dias',   color: 'text-[#d8e2ff]', bg: 'bg-[#d8e2ff]/10' },
-  { icon: MessageSquare, text: 'Tela de login aprovada pelo cliente em reunião semanal',    time: 'Há 5 dias',   color: 'text-blue-300',  bg: 'bg-primary/20' },
-  { icon: Shield,        text: 'Auditoria de segurança da API — 0 vulnerabilidades',        time: 'Há 1 semana', color: 'text-blue-300',  bg: 'bg-primary/20' },
 ]
 
 const SIDEBAR_ITEMS = [
@@ -169,15 +151,24 @@ export default function App() {
   const [isLive, setIsLive]       = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [lastSync, setLastSync]   = useState(null)
-  const [progress, setProgress]   = useState(85)
+  const [progress, setProgress]   = useState(0)
   const [tasks, setTasks]         = useState(DEMO_TASKS)
-  const [sprints, setSprints]     = useState([...HISTORICAL_SPRINTS, DEMO_SPRINT_12, DEMO_SPRINT_13])
+  const [sprints, setSprints]     = useState([
+    ...HISTORICAL_SPRINTS,
+    { name: 'Sprint 12', period: '29 Set – 12 Out', status: 'in_progress', tasks: [] },
+    { name: 'Sprint 13', period: '13 Out – 26 Out', status: 'planned',     tasks: [] },
+  ])
 
   const hasClickUp = !!CONFIG.listId
 
   // ── Busca dados do ClickUp ────────────────────────────────
   async function fetchClickUp() {
-    if (!hasClickUp) return
+    if (!hasClickUp) {
+      setProgress(85)
+      setTimeout(() => setProgressWidth(85), 400)
+      setTasks(DEMO_TASKS)
+      return
+    }
     setIsLoading(true)
     try {
       const res  = await fetch(`/api/clickup?path=list/${CONFIG.listId}/task%3Finclude_closed%3Dtrue`)
@@ -185,35 +176,37 @@ export default function App() {
 
       if (json.error) throw new Error(json.error)
 
+      // Mapeia todas as tarefas com status e timestamp
       const allTasks = (json.tasks || []).map(t => ({
-        title:  t.name,
-        status: mapStatus(t.status?.status),
+        title:       t.name,
+        status:      mapStatus(t.status?.status),
+        rawStatus:   t.status?.status || '',
+        dateUpdated: t.date_updated || t.date_created || '0',
       }))
 
-      // Progresso: tarefas concluídas / total
+      // Progresso: concluídas / total
       const done  = allTasks.filter(t => t.status === 'completed').length
       const total = allTasks.length
       const pct   = total > 0 ? Math.round((done / total) * 100) : 0
 
-      // Sprint 12 = tarefas reais do ClickUp
-      const liveSprint12 = {
+      // Sprint 12 = todas as tarefas reais do ClickUp
+      const liveSprint = {
         name:   CONFIG.activeSprintName,
         period: '29 Set – 12 Out',
-        status: done === total ? 'completed' : 'in_progress',
-        tasks:  allTasks,
+        status: done === total && total > 0 ? 'completed' : 'in_progress',
+        tasks:  allTasks.map(t => ({ title: t.title, status: t.status })),
       }
 
-      // Tarefas recentes: primeiras 4 (priorizando in_progress e review)
-      const sorted = [...allTasks].sort((a, b) => {
-        const order = { in_progress: 0, review: 1, pending: 2, completed: 3 }
-        return (order[a.status] ?? 99) - (order[b.status] ?? 99)
-      })
+      // Tarefas recentes: ordenadas por data de atualização (mais recente primeiro)
+      const sorted = [...allTasks].sort((a, b) =>
+        parseInt(b.dateUpdated) - parseInt(a.dateUpdated)
+      )
 
       const recentTasks = sorted.slice(0, 4).map(t => {
         const cfg = taskStatusConfig[t.status] || taskStatusConfig.pending
         return {
           title:       t.title,
-          subtitle:    subtitleFromStatus(t.status),
+          subtitle:    `${actionLabel(t.status)} · ${timeAgo(t.dateUpdated)}`,
           status:      t.status,
           statusLabel: cfg.label,
           statusBg:    cfg.bg,
@@ -221,13 +214,21 @@ export default function App() {
         }
       })
 
-      setSprints([...HISTORICAL_SPRINTS, liveSprint12, DEMO_SPRINT_13])
+      setSprints([
+        ...HISTORICAL_SPRINTS,
+        liveSprint,
+        { name: 'Sprint 13', period: '13 Out – 26 Out', status: 'planned', tasks: [] },
+      ])
       setTasks(recentTasks)
       setProgress(pct)
+      setProgressWidth(pct)   // atualiza barra diretamente
       setIsLive(true)
       setLastSync(new Date())
     } catch (err) {
-      console.warn('ClickUp fetch falhou, usando dados demo:', err.message)
+      console.warn('ClickUp fetch falhou:', err.message)
+      setProgress(85)
+      setTimeout(() => setProgressWidth(85), 400)
+      setTasks(DEMO_TASKS)
     } finally {
       setIsLoading(false)
     }
@@ -240,16 +241,7 @@ export default function App() {
     return () => { clearTimeout(t1); clearTimeout(t2) }
   }, [])
 
-  useEffect(() => {
-    fetchClickUp().then(() => {
-      setTimeout(() => setProgressWidth(progress), 300)
-    })
-    if (!hasClickUp) setTimeout(() => setProgressWidth(85), 400)
-  }, [])
-
-  useEffect(() => {
-    if (isLive) setTimeout(() => setProgressWidth(progress), 200)
-  }, [progress, isLive])
+  useEffect(() => { fetchClickUp() }, [])
 
   const openExpand  = (block) => { if (expanded || isClosing) return; setExpanded(block) }
   const closeExpand = (e) => {
@@ -392,7 +384,10 @@ export default function App() {
                     </div>
                   </div>
                   <div className="w-full bg-slate-900 border border-white/10 h-4 rounded-full overflow-hidden">
-                    <div className="bg-gradient-to-r from-primary to-primary-fixed h-full rounded-full transition-all duration-1000 ease-out" style={{ width: `${progressWidth}%` }} />
+                    <div
+                      className="bg-gradient-to-r from-primary to-primary-fixed h-full rounded-full transition-all duration-1000 ease-out"
+                      style={{ width: `${progressWidth}%` }}
+                    />
                   </div>
                 </div>
 
@@ -427,7 +422,7 @@ export default function App() {
                             <ChevronDown className={`w-4 h-4 text-white/40 transition-transform duration-200 ${expandedSprint === idx ? 'rotate-180' : ''}`} />
                           </div>
                         </button>
-                        {expandedSprint === idx && (
+                        {expandedSprint === idx && sprint.tasks.length > 0 && (
                           <div className="px-4 pb-4 space-y-2">
                             {sprint.tasks.map((task, tIdx) => (
                               <div key={tIdx} className="flex items-center justify-between py-2.5 px-3 rounded-lg bg-white/5 hover:bg-white/10 transition-colors animate-slide-in-left" style={{ animationDelay: `${tIdx * 50}ms` }}>
@@ -440,6 +435,11 @@ export default function App() {
                             ))}
                           </div>
                         )}
+                        {expandedSprint === idx && sprint.tasks.length === 0 && (
+                          <div className="px-4 pb-4">
+                            <p className="text-sm text-white/30 italic">Nenhuma tarefa ainda</p>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -447,7 +447,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* BLOCK 3: Tarefas */}
+            {/* BLOCK 3: Tarefas Recentes */}
             <div
               className={`animate-fade-in-up transition-all duration-300 ${expanded === 'tasks' ? 'md:col-span-2 z-10 opacity-100' : hasOverlay ? 'opacity-30' : 'opacity-100'}`}
               style={{ animationDelay: blocksVisible ? '300ms' : '9999ms' }}
@@ -457,7 +457,10 @@ export default function App() {
                 onClick={() => expanded !== 'tasks' && openExpand('tasks')}
               >
                 <div className="flex justify-between items-center mb-8">
-                  <h3 className="text-2xl font-bold text-white">Tarefas Recentes</h3>
+                  <div>
+                    <h3 className="text-2xl font-bold text-white">Tarefas Recentes</h3>
+                    <p className="text-xs text-white/40 mt-1">Ordenadas por última movimentação</p>
+                  </div>
                   {expanded === 'tasks'
                     ? <button onClick={closeExpand} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 animate-fade-in-rotate"><X className="w-4 h-4 text-white/60" /></button>
                     : <CheckCircle2 className="w-5 h-5 text-primary-fixed" />
@@ -478,26 +481,35 @@ export default function App() {
                   ))}
                 </div>
 
+                {/* Expandido: histórico completo */}
                 {expanded === 'tasks' && (
-                  <div className={`pt-6 mt-6 border-t border-white/10 space-y-1 ${isClosing ? 'animate-expanded-out' : 'animate-expanded-in'}`} style={{ animationDelay: isClosing ? '0ms' : '200ms' }} onClick={(e) => e.stopPropagation()}>
-                    <h4 className="text-lg font-bold text-white mb-4">Últimas Atualizações</h4>
-                    {UPDATES.map((update, idx) => (
-                      <div key={idx} className="flex items-start gap-3 p-3.5 rounded-xl hover:bg-white/5 transition-colors animate-slide-in-left" style={{ animationDelay: `${idx * 60}ms` }}>
-                        <div className={`p-2.5 rounded-lg ${update.bg} shrink-0 mt-0.5`}>
-                          <update.icon className={`w-4 h-4 ${update.color}`} />
+                  <div className={`pt-6 mt-6 border-t border-white/10 ${isClosing ? 'animate-expanded-out' : 'animate-expanded-in'}`} style={{ animationDelay: isClosing ? '0ms' : '200ms' }} onClick={(e) => e.stopPropagation()}>
+                    <h4 className="text-lg font-bold text-white mb-4">Histórico Completo</h4>
+                    <div className="space-y-2">
+                      {tasks.map((task, idx) => (
+                        <div key={idx} className="flex items-start gap-3 p-3.5 rounded-xl hover:bg-white/5 transition-colors animate-slide-in-left" style={{ animationDelay: `${idx * 60}ms` }}>
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                            task.status === 'completed'   ? 'bg-primary/20' :
+                            task.status === 'review'      ? 'bg-[#fdc425]/20' :
+                            task.status === 'in_progress' ? 'bg-primary/20' :
+                            'bg-white/10'
+                          }`}>
+                            {taskIconMap[task.status] || taskIconMap.pending}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-white/80 font-medium">{task.title}</p>
+                            <p className="text-xs text-white/30 mt-0.5">{task.subtitle}</p>
+                          </div>
+                          <SprintStatusBadge status={task.status} />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-white/80 leading-relaxed">{update.text}</p>
-                          <p className="text-xs text-white/30 mt-1">{update.time}</p>
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* BLOCK 4: Heatmap */}
+            {/* BLOCK 4: Visão Geral */}
             <div className={`animate-fade-in-up transition-opacity duration-300 ${hasOverlay ? 'opacity-30' : 'opacity-100'}`} style={{ animationDelay: blocksVisible ? '400ms' : '9999ms' }}>
               <div className="bg-surface-container-lowest border border-outline-variant/30 p-8 rounded-xl space-y-8 min-h-[400px] transition-all duration-200 hover:shadow-xl hover:scale-[1.01] cursor-default">
                 <div>
