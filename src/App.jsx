@@ -176,6 +176,21 @@ export default function App() {
 
       if (json.error) throw new Error(json.error)
 
+      // 🔍 DIAGNÓSTICO: status brutos do ClickUp vs. status mapeado
+      console.group('[ClickUp] Diagnóstico de status')
+      console.log('Total de tarefas recebidas:', json.tasks?.length ?? 0)
+      console.table(
+        (json.tasks || []).map(t => ({
+          name:      t.name,
+          rawStatus: t.status?.status,
+          type:      t.status?.type,
+          mapped:    mapStatus(t.status?.status),
+        }))
+      )
+      const uniqueRaw = [...new Set((json.tasks || []).map(t => t.status?.status))]
+      console.log('Status únicos no ClickUp:', uniqueRaw)
+      console.groupEnd()
+
       // Mapeia todas as tarefas com status e timestamp
       const allTasks = (json.tasks || []).map(t => ({
         title:       t.name,
