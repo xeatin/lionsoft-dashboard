@@ -49,6 +49,25 @@ function actionLabel(status) {
   }[status] || 'Atualizada'
 }
 
+// ── Helpers de sprint dinâmico ────────────────────────────────
+function chunkArray(arr, size) {
+  const chunks = []
+  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size))
+  return chunks
+}
+
+function sprintStatusFromTasks(tasks) {
+  if (tasks.length === 0) return 'planned'
+  if (tasks.every(t => t.status === 'completed')) return 'completed'
+  return 'in_progress'
+}
+
+function formatSprintDate(tsMs) {
+  if (!tsMs || tsMs === '0') return ''
+  return new Date(parseInt(tsMs)).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+    .replace(/ de /g, ' ').replace('.', '')
+}
+
 // ── Dados fixos ───────────────────────────────────────────────
 const DEMO_SQUAD = [
   { name: 'Ana Mendes',  role: 'Lead Dev',    initials: 'AM', bg: 'bg-primary-container',   textColor: 'text-white' },
@@ -65,24 +84,6 @@ const DEMO_TASKS = [
   { title: 'Push Notifications',     subtitle: 'Adicionada à sprint',  status: 'pending',    statusLabel: 'Pendente',     statusBg: 'bg-white/10',                               statusText: 'text-white opacity-40' },
 ]
 
-const HISTORICAL_SPRINTS = [
-  { name: 'Sprint 10', period: '01 Set – 14 Set', status: 'completed', tasks: [
-    { title: 'Setup do ambiente e CI/CD',       status: 'completed' },
-    { title: 'Modelagem do banco de dados',      status: 'completed' },
-    { title: 'Autenticação e autorização (JWT)', status: 'completed' },
-    { title: 'Tela de login e cadastro',         status: 'completed' },
-    { title: 'API de usuários (CRUD)',           status: 'completed' },
-    { title: 'Configuração de monitoramento',    status: 'completed' },
-  ]},
-  { name: 'Sprint 11', period: '15 Set – 28 Set', status: 'completed', tasks: [
-    { title: 'API de transações (PIX)',          status: 'completed' },
-    { title: 'Dashboard do cliente',            status: 'completed' },
-    { title: 'Integração gateway de pagamento', status: 'completed' },
-    { title: 'Notificações por e-mail',         status: 'completed' },
-    { title: 'Relatórios básicos (PDF)',        status: 'completed' },
-    { title: 'Code review e refactoring',       status: 'completed' },
-  ]},
-]
 
 const DEMO_HEATMAP = [
   10, 40, 20, 90, 30, 60, 10,
@@ -143,20 +144,22 @@ const taskIconMap = {
 export default function App() {
   const [expanded, setExpanded]             = useState(null)
   const [isClosing, setIsClosing]           = useState(false)
-  const [expandedSprint, setExpandedSprint] = useState(2)
+  const [expandedSprint, setExpandedSprint] = useState(0)
   const [progressWidth, setProgressWidth]   = useState(0)
   const [heatmapVisible, setHeatmapVisible] = useState(false)
   const [blocksVisible, setBlocksVisible]   = useState(false)
 
-  const [isLive, setIsLive]       = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-  const [lastSync, setLastSync]   = useState(null)
-  const [progress, setProgress]   = useState(0)
-  const [tasks, setTasks]         = useState(DEMO_TASKS)
-  const [sprints, setSprints]     = useState([
-    ...HISTORICAL_SPRINTS,
-    { name: 'Sprint 12', period: '29 Set – 12 Out', status: 'in_progress', tasks: [] },
-    { name: 'Sprint 13', period: '13 Out – 26 Out', status: 'planned',     tasks: [] },
+  const [isLive, setIsLive]             = useState(false)
+  const [isLoading, setIsLoading]       = useState(false)
+  const [lastSync, setLastSync]         = useState(null)
+  const [progress, setProgress]         = useState(0)
+  const [activeSprint, setActiveSprint] = useState(CONFIG.activeSprintName)
+  const [tasks, setTasks]               = useState(DEMO_TASKS)
+  const [sprints, setSprints]           = useState([
+    { name: 'Sprint 1', period: '', status: 'planned', tasks: [] },
+    { name: 'Sprint 2', period: '', status: 'planned', tasks: [] },
+    { name: 'Sprint 3', period: '', status: 'planned', tasks: [] },
+    { name: 'Sprint 4', period: '', status: 'planned', tasks: [] },
   ])
 
   const hasClickUp = !!CONFIG.listId
@@ -176,48 +179,51 @@ export default function App() {
 
       if (json.error) throw new Error(json.error)
 
-      // 🔍 DIAGNÓSTICO: status brutos do ClickUp vs. status mapeado
-      console.group('[ClickUp] Diagnóstico de status')
-      console.log('Total de tarefas recebidas:', json.tasks?.length ?? 0)
-      console.table(
-        (json.tasks || []).map(t => ({
-          name:      t.name,
-          rawStatus: t.status?.status,
-          type:      t.status?.type,
-          mapped:    mapStatus(t.status?.status),
-        }))
-      )
-      const uniqueRaw = [...new Set((json.tasks || []).map(t => t.status?.status))]
-      console.log('Status únicos no ClickUp:', uniqueRaw)
-      console.groupEnd()
-
-      // Mapeia todas as tarefas com status e timestamp
+      // Mapeia todas as tarefas com status e timestamps
       const allTasks = (json.tasks || []).map(t => ({
         title:       t.name,
         status:      mapStatus(t.status?.status),
-        rawStatus:   t.status?.status || '',
+        dateCreated: t.date_created || '0',
         dateUpdated: t.date_updated || t.date_created || '0',
       }))
 
-      // Progresso: concluídas / total
+      // Progresso global: concluídas / total
       const done  = allTasks.filter(t => t.status === 'completed').length
       const total = allTasks.length
       const pct   = total > 0 ? Math.round((done / total) * 100) : 0
 
-      // Sprint 12 = todas as tarefas reais do ClickUp
-      const liveSprint = {
-        name:   CONFIG.activeSprintName,
-        period: '29 Set – 12 Out',
-        status: done === total && total > 0 ? 'completed' : 'in_progress',
-        tasks:  allTasks.map(t => ({ title: t.title, status: t.status })),
-      }
+      // Distribui tarefas em sprints de 8, por ordem de criação
+      const byCreation = [...allTasks].sort((a, b) => parseInt(a.dateCreated) - parseInt(b.dateCreated))
+      const chunks     = chunkArray(byCreation, 8)
+      const totalSprints = Math.max(4, chunks.length + 1)
+
+      const computedSprints = Array.from({ length: totalSprints }, (_, i) => {
+        const sprintTasks = chunks[i] || []
+        const status      = sprintStatusFromTasks(sprintTasks)
+        const first = sprintTasks[0]?.dateCreated
+        const last  = sprintTasks[sprintTasks.length - 1]?.dateCreated
+        const period = first
+          ? first === last
+            ? formatSprintDate(first)
+            : `${formatSprintDate(first)} – ${formatSprintDate(last)}`
+          : ''
+        return {
+          name:   `Sprint ${i + 1}`,
+          period,
+          status,
+          tasks: sprintTasks.map(t => ({ title: t.title, status: t.status })),
+        }
+      })
+
+      // Expande o primeiro sprint ativo (in_progress), ou o primeiro com tarefas
+      const activeIdx = computedSprints.findIndex(s => s.status === 'in_progress')
+      const openIdx   = activeIdx >= 0 ? activeIdx : computedSprints.findIndex(s => s.tasks.length > 0)
+      setExpandedSprint(openIdx >= 0 ? openIdx : 0)
+      setActiveSprint(computedSprints[openIdx >= 0 ? openIdx : 0]?.name || 'Sprint 1')
 
       // Tarefas recentes: ordenadas por data de atualização (mais recente primeiro)
-      const sorted = [...allTasks].sort((a, b) =>
-        parseInt(b.dateUpdated) - parseInt(a.dateUpdated)
-      )
-
-      const recentTasks = sorted.slice(0, 4).map(t => {
+      const byUpdated = [...allTasks].sort((a, b) => parseInt(b.dateUpdated) - parseInt(a.dateUpdated))
+      const recentTasks = byUpdated.slice(0, 4).map(t => {
         const cfg = taskStatusConfig[t.status] || taskStatusConfig.pending
         return {
           title:       t.title,
@@ -229,14 +235,10 @@ export default function App() {
         }
       })
 
-      setSprints([
-        ...HISTORICAL_SPRINTS,
-        liveSprint,
-        { name: 'Sprint 13', period: '13 Out – 26 Out', status: 'planned', tasks: [] },
-      ])
+      setSprints(computedSprints)
       setTasks(recentTasks)
       setProgress(pct)
-      setProgressWidth(pct)   // atualiza barra diretamente
+      setProgressWidth(pct)
       setIsLive(true)
       setLastSync(new Date())
     } catch (err) {
@@ -324,7 +326,7 @@ export default function App() {
             </div>
             <div className="bg-surface-container-low px-3 py-2 sm:px-5 sm:py-2.5 rounded-lg flex items-center gap-2 self-start sm:self-auto">
               <BadgeCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary shrink-0" />
-              <span className="text-label text-xs sm:text-sm font-bold text-on-surface">Projeto Ativo: {CONFIG.activeSprintName}</span>
+              <span className="text-label text-xs sm:text-sm font-bold text-on-surface">Projeto Ativo: {activeSprint}</span>
             </div>
           </div>
 
@@ -379,7 +381,7 @@ export default function App() {
                   <div>
                     <h3 className="text-2xl font-bold text-white">Progresso do Projeto</h3>
                     <p className="text-label text-xs text-primary-fixed opacity-70 mt-1">
-                      {CONFIG.activeSprintName}: {progress}% concluída
+                      {activeSprint}: {progress}% concluída
                     </p>
                   </div>
                   {expanded === 'progress' && (
